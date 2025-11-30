@@ -132,11 +132,6 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess }) => {
     }
   };
 
-  const fillAdminCredentials = () => {
-    setEmail('admin@scholarsync.com');
-    setPassword('admin123'); 
-  };
-
   // --- Scholar Logic ---
   const handleScholarLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -347,7 +342,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess }) => {
                           value={email}
                           onChange={(e) => setEmail(e.target.value)}
                           className="w-full pl-10 pr-4 py-3 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 outline-none transition-all disabled:opacity-50"
-                          placeholder="admin@scholarsync.com"
+                          placeholder="Enter admin credentials..."
                           disabled={loading || rateLimitCountdown > 0}
                         />
                       </div>
@@ -379,20 +374,6 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess }) => {
                       }`}
                     >
                       {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : rateLimitCountdown > 0 ? `Wait ${rateLimitCountdown}s` : 'Sign In'}
-                    </button>
-                    
-                    <div className="relative my-6">
-                      <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-200"></div></div>
-                      <div className="relative flex justify-center text-sm"><span className="px-2 bg-white text-gray-500">Quick Access</span></div>
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={fillAdminCredentials}
-                      disabled={loading || rateLimitCountdown > 0}
-                      className="w-full py-2 bg-orange-50 text-orange-700 border border-orange-200 rounded-lg hover:bg-orange-100 transition-colors text-sm font-medium flex justify-center items-center gap-2 disabled:opacity-50"
-                    >
-                      <KeyRound className="w-4 h-4" /> Auto-fill Demo Credentials
                     </button>
                   </form>
                 </div>
