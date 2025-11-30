@@ -1,28 +1,12 @@
 
 import { GoogleGenAI, Modality } from "@google/genai";
 
-// Safe access for API Key
-const getApiKey = () => {
-  try {
-    // @ts-ignore
-    if (typeof process !== 'undefined' && process.env) {
-      // @ts-ignore
-      return process.env.API_KEY;
-    }
-  } catch (e) {}
-  
-  try {
-    // @ts-ignore
-    if (typeof import.meta !== 'undefined' && import.meta.env) {
-      // @ts-ignore
-      return import.meta.env.API_KEY || import.meta.env.VITE_API_KEY;
-    }
-  } catch (e) {}
-  
-  return '';
-};
+// Get API key from Vite environment variables
+const apiKey = import.meta.env.VITE_GEMINI_API_KEY || '';
 
-const apiKey = getApiKey();
+if (!apiKey) {
+  console.warn('GEMINI_API_KEY is not set. Please check your .env.local file.');
+}
 const ai = new GoogleGenAI({ apiKey });
 
 export const generateAnnouncementDraft = async (topic: string): Promise<string> => {
