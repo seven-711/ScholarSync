@@ -1,0 +1,7 @@
+{
+  "name": "ScholarSync",
+  "description": "A comprehensive Scholar Monitoring and Engagement System featuring dedicated Admin and Scholar portals for management, assignments, and announcements.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
