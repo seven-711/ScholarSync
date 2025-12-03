@@ -5,45 +5,56 @@ import { GoogleGenAI, Modality } from "@google/genai";
 const getApiKey = () => {
   try {
     // @ts-ignore
-    if (typeof process !== 'undefined' && process.env) {
-      // @ts-ignore
-      return process.env.API_KEY;
-    }
-  } catch (e) {}
-  
-  try {
-    // @ts-ignore
     if (typeof import.meta !== 'undefined' && import.meta.env) {
       // @ts-ignore
-      return import.meta.env.API_KEY || import.meta.env.VITE_API_KEY;
+      return import.meta.env.VITE_API_KEY || import.meta.env.API_KEY;
+    }
+  } catch (e) {}
+
+  try {
+    // @ts-ignore
+    if (typeof process !== 'undefined' && process.env) {
+      // @ts-ignore
+      return process.env.API_KEY || process.env.VITE_API_KEY;
     }
   } catch (e) {}
   
   return '';
 };
 
-const apiKey = getApiKey();
-const ai = new GoogleGenAI({ apiKey });
+// Singleton instance (Lazy loaded)
+let aiInstance: GoogleGenAI | null = null;
+
+const getAiClient = (): GoogleGenAI => {
+  if (aiInstance) return aiInstance;
+  
+  const key = getApiKey();
+  if (!key) {
+    throw new Error("Gemini API Key is missing. Please check your .env file for VITE_API_KEY.");
+  }
+  
+  aiInstance = new GoogleGenAI({ apiKey: key });
+  return aiInstance;
+};
 
 export const generateAnnouncementDraft = async (topic: string): Promise<string> => {
-  if (!apiKey) return "Gemini API Key is missing.";
-
   try {
+    const ai = getAiClient();
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash',
       contents: `Write a professional, encouraging announcement for a scholarship program about: ${topic}. Keep it under 100 words.`,
     });
     return response.text || "Could not generate content.";
-  } catch (error) {
+  } catch (error: any) {
     console.error("Gemini Error:", error);
-    return "Error generating content.";
+    return `Error: ${error.message || "Could not generate content"}`;
   }
 };
 
 // 1. FAST AI RESPONSES (gemini-2.0-flash-lite)
 export const generateFastReply = async (inquiryMessage: string, context: string): Promise<string> => {
-  if (!apiKey) return "API Key missing.";
   try {
+    const ai = getAiClient();
     const response = await ai.models.generateContent({
       model: 'gemini-2.0-flash-lite-preview-02-05', 
       contents: `You are a helpful scholarship administrator. 
@@ -55,7 +66,7 @@ export const generateFastReply = async (inquiryMessage: string, context: string)
     return response.text || "";
   } catch (error) {
     console.error("Fast Reply Error:", error);
-    return "Error generating reply.";
+    return "";
   }
 };
 
@@ -74,30 +85,31 @@ export const generateImage = async (prompt: string, aspectRatio: string = "16:9"
   };
 
   // --- STRATEGY A: Try Gemini (High Quality) ---
-  if (apiKey) {
-    try {
-      console.log("Attempting Gemini Image Gen...");
-      const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash-image',
-        contents: {
-          parts: [{ text: prompt }],
-        },
-        config: {
-          imageConfig: {
-            aspectRatio: aspectRatio as any, 
-          }
-        }
-      });
-
-      for (const part of response.candidates?.[0]?.content?.parts || []) {
-        if (part.inlineData) {
-          return `data:image/png;base64,${part.inlineData.data}`;
+  // We wrap this in a try block specifically to catch the "Missing API Key" error 
+  // and fall through to Strategy B seamlessly.
+  try {
+    const ai = getAiClient(); // This might throw if no key
+    console.log("Attempting Gemini Image Gen...");
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash-image',
+      contents: {
+        parts: [{ text: prompt }],
+      },
+      config: {
+        imageConfig: {
+          aspectRatio: aspectRatio as any, 
         }
       }
-    } catch (error: any) {
-      console.warn("Gemini Image Gen failed (likely quota). Switching to fallback.", error.message);
-      // Fall through to Strategy B
+    });
+
+    for (const part of response.candidates?.[0]?.content?.parts || []) {
+      if (part.inlineData) {
+        return `data:image/png;base64,${part.inlineData.data}`;
+      }
     }
+  } catch (error: any) {
+    console.warn("Gemini Image Gen failed (Quota, API Key, or Rate Limit). Switching to fallback.", error.message);
+    // Fall through to Strategy B
   }
 
   // --- STRATEGY B: Pollinations.ai (Free, Unlimited Fallback) ---
@@ -121,8 +133,9 @@ export const generateImage = async (prompt: string, aspectRatio: string = "16:9"
 
 // 3. GENERATE SPEECH (gemini-2.5-flash-preview-tts)
 export const generateSpeech = async (text: string): Promise<string | null> => {
-  if (!apiKey) return null;
   try {
+    const ai = getAiClient();
+    
     // Add timeout to prevent hanging
     const fetchPromise = ai.models.generateContent({
       model: 'gemini-2.5-flash-preview-tts',
@@ -152,8 +165,8 @@ export const generateSpeech = async (text: string): Promise<string | null> => {
 
 // 4. CHATBOT (gemini-2.5-flash)
 export const createChatSession = () => {
-  if (!apiKey) throw new Error("API Key missing");
-  // Use gemini-2.5-flash for stability instead of gemini-3-pro-preview
+  const ai = getAiClient(); // Throws if key missing
+  
   return ai.chats.create({
     model: 'gemini-2.5-flash',
     config: {
@@ -181,5 +194,6 @@ export const createChatSession = () => {
 };
 
 export const getLiveClient = () => {
+    const ai = getAiClient();
     return ai.live;
 };
