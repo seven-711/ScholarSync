@@ -1,12 +1,28 @@
 
 import { GoogleGenAI, Modality } from "@google/genai";
 
-// Get API key from Vite environment variables
-const apiKey = import.meta.env.VITE_GEMINI_API_KEY || '';
+// Safe access for API Key
+const getApiKey = () => {
+  try {
+    // @ts-ignore
+    if (typeof process !== 'undefined' && process.env) {
+      // @ts-ignore
+      return process.env.API_KEY;
+    }
+  } catch (e) {}
+  
+  try {
+    // @ts-ignore
+    if (typeof import.meta !== 'undefined' && import.meta.env) {
+      // @ts-ignore
+      return import.meta.env.API_KEY || import.meta.env.VITE_API_KEY;
+    }
+  } catch (e) {}
+  
+  return '';
+};
 
-if (!apiKey) {
-  console.warn('GEMINI_API_KEY is not set. Please check your .env.local file.');
-}
+const apiKey = getApiKey();
 const ai = new GoogleGenAI({ apiKey });
 
 export const generateAnnouncementDraft = async (topic: string): Promise<string> => {
@@ -29,7 +45,7 @@ export const generateFastReply = async (inquiryMessage: string, context: string)
   if (!apiKey) return "API Key missing.";
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-2.0-flash-lite-preview-02-05', // Corrected model ID
+      model: 'gemini-2.0-flash-lite-preview-02-05', 
       contents: `You are a helpful scholarship administrator. 
       Context about the student: ${context}
       Student Inquiry: "${inquiryMessage}"
@@ -43,34 +59,63 @@ export const generateFastReply = async (inquiryMessage: string, context: string)
   }
 };
 
-// 2. IMAGE GENERATION (gemini-2.5-flash-image)
-// Switched from 'gemini-3-pro-image-preview' to 'gemini-2.5-flash-image' to fix permission errors
+// 2. IMAGE GENERATION (Hybrid: Gemini -> Fallback to Pollinations.ai)
 export const generateImage = async (prompt: string, aspectRatio: string = "16:9"): Promise<string | null> => {
-  if (!apiKey) return null;
-  try {
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash-image',
-      contents: {
-        parts: [{ text: prompt }],
-      },
-      config: {
-        imageConfig: {
-          aspectRatio: aspectRatio as any, // 1:1, 3:4, 4:3, 9:16, 16:9
-          // imageSize is not supported in gemini-2.5-flash-image
+  
+  // Helper to get dimensions based on aspect ratio
+  const getDimensions = (ar: string) => {
+    switch (ar) {
+      case "16:9": return { w: 1280, h: 720 };
+      case "9:16": return { w: 720, h: 1280 };
+      case "3:4": return { w: 768, h: 1024 };
+      case "4:3": return { w: 1024, h: 768 };
+      default: return { w: 1024, h: 1024 }; // 1:1
+    }
+  };
+
+  // --- STRATEGY A: Try Gemini (High Quality) ---
+  if (apiKey) {
+    try {
+      console.log("Attempting Gemini Image Gen...");
+      const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash-image',
+        contents: {
+          parts: [{ text: prompt }],
+        },
+        config: {
+          imageConfig: {
+            aspectRatio: aspectRatio as any, 
+          }
+        }
+      });
+
+      for (const part of response.candidates?.[0]?.content?.parts || []) {
+        if (part.inlineData) {
+          return `data:image/png;base64,${part.inlineData.data}`;
         }
       }
-    });
-
-    // Extract image
-    for (const part of response.candidates?.[0]?.content?.parts || []) {
-      if (part.inlineData) {
-        return `data:image/png;base64,${part.inlineData.data}`;
-      }
+    } catch (error: any) {
+      console.warn("Gemini Image Gen failed (likely quota). Switching to fallback.", error.message);
+      // Fall through to Strategy B
     }
+  }
+
+  // --- STRATEGY B: Pollinations.ai (Free, Unlimited Fallback) ---
+  try {
+    console.log("Using Pollinations.ai Fallback...");
+    const { w, h } = getDimensions(aspectRatio);
+    // Encode prompt and ensure it's not too long for a URL
+    const safePrompt = encodeURIComponent(prompt.substring(0, 150));
+    // Add seed to make it deterministic if needed, or random (default)
+    const randomSeed = Math.floor(Math.random() * 10000);
+    
+    // Construct URL
+    const imageUrl = `https://image.pollinations.ai/prompt/${safePrompt}?width=${w}&height=${h}&seed=${randomSeed}&nologo=true&model=flux`;
+    
+    return imageUrl; 
+  } catch (e) {
+    console.error("All image generation strategies failed.", e);
     return null;
-  } catch (error) {
-    console.error("Image Gen Error:", error);
-    throw new Error(error.message || "Failed to generate image");
   }
 };
 
