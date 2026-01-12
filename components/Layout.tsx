@@ -18,18 +18,18 @@ export const Layout: React.FC<LayoutProps> = ({ children, role, activeTab, onTab
   const adminLinks = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'scholars', label: 'Scholars', icon: Users },
+    { id: 'sdp', label: 'SDP', icon: FileCheck },
     { id: 'announcements', label: 'Announcements', icon: ScrollText },
-    { id: 'assignments', label: 'Assignments', icon: FileCheck },
     { id: 'inquiries', label: 'Inquiries', icon: MessageCircleQuestion },
   ];
 
   const scholarLinks = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-    { id: 'assignments', label: 'My Assignments', icon: FileCheck },
+    { id: 'sdp', label: "SDP", icon: FileCheck },
     { id: 'inquiries', label: 'Contact Support', icon: MessageCircleQuestion },
   ];
 
-  const links = role === UserRole.ADMIN ? adminLinks : scholarLinks;
+  const links = (role === UserRole.ADMIN || role === UserRole.SUPER_ADMIN) ? adminLinks : scholarLinks;
 
   const handleNavClick = (id: string) => {
     onTabChange(id);
@@ -37,14 +37,14 @@ export const Layout: React.FC<LayoutProps> = ({ children, role, activeTab, onTab
   };
 
   // Theme configuration
-  const isAdmin = role === UserRole.ADMIN;
-  
+  const isAdmin = role === UserRole.ADMIN || role === UserRole.SUPER_ADMIN;
+
   // Admin: Gradient Orange to Amber
   // Scholar: Gradient Red-900 (Maroon) to Rose-900
-  const sidebarClass = isAdmin 
-    ? 'bg-gradient-to-b from-orange-600 to-amber-500 text-white' 
+  const sidebarClass = isAdmin
+    ? 'bg-gradient-to-b from-orange-600 to-amber-500 text-white'
     : 'bg-gradient-to-b from-red-950 to-rose-900 text-white';
-    
+
   const mobileHeaderClass = isAdmin
     ? 'bg-gradient-to-r from-orange-600 to-amber-500 text-white'
     : 'bg-gradient-to-r from-red-950 to-rose-900 text-white';
@@ -56,17 +56,17 @@ export const Layout: React.FC<LayoutProps> = ({ children, role, activeTab, onTab
 
   return (
     <div className="h-screen bg-gray-50 flex flex-col md:flex-row overflow-hidden">
-      
+
       {/* Mobile Top Bar */}
       <div className={`md:hidden fixed top-0 left-0 right-0 z-30 h-16 flex items-center justify-between px-4 border-b border-white/10 shadow-sm ${mobileHeaderClass}`}>
         <div className="flex items-center gap-2">
-           <div className={`p-1.5 rounded-lg ${iconBgClass}`}>
+          <div className={`p-1.5 rounded-lg ${iconBgClass}`}>
             <GraduationCap className="w-5 h-5" />
           </div>
           <span className="font-bold text-lg tracking-tight">ScholarSync</span>
         </div>
-        <button 
-          onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} 
+        <button
+          onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
           className="p-2 rounded-md hover:bg-white/10 transition-colors"
         >
           {isMobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
@@ -75,7 +75,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, role, activeTab, onTab
 
       {/* Mobile Overlay */}
       {isMobileMenuOpen && (
-        <div 
+        <div
           className="fixed inset-0 bg-black/50 z-30 md:hidden backdrop-blur-sm"
           onClick={() => setIsMobileMenuOpen(false)}
         />
@@ -89,19 +89,19 @@ export const Layout: React.FC<LayoutProps> = ({ children, role, activeTab, onTab
         ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}
         ${sidebarClass}
       `}>
-        
+
         {/* Sidebar Header */}
         <div className="p-6 flex items-center gap-3 h-20 md:h-24 border-b border-white/10">
           <div className={`p-2.5 rounded-xl shadow-lg ${iconBgClass}`}>
             <GraduationCap className="w-7 h-7" />
           </div>
           <div className="flex flex-col">
-             <span className="font-bold text-xl tracking-tight leading-none text-white">
-               ScholarSync
-             </span>
-             <span className="text-[11px] font-bold uppercase tracking-wider mt-1 text-white/80">
-               {isAdmin ? 'Admin Portal' : 'Scholar Portal'}
-             </span>
+            <span className="font-bold text-xl tracking-tight leading-none text-white">
+              ScholarSync
+            </span>
+            <span className="text-[11px] font-bold uppercase tracking-wider mt-1 text-white/80">
+              {role === UserRole.SUPER_ADMIN ? 'Super Admin' : (isAdmin ? 'Coordinator' : 'Scholar Portal')}
+            </span>
           </div>
         </div>
 
@@ -118,14 +118,13 @@ export const Layout: React.FC<LayoutProps> = ({ children, role, activeTab, onTab
               <button
                 key={link.id}
                 onClick={() => handleNavClick(link.id)}
-                className={`w-full flex items-center justify-between px-4 py-3.5 rounded-xl text-sm font-medium transition-all duration-200 group ${
-                  isActive ? activeLinkClass : inactiveLinkClass
-                }`}
+                className={`w-full flex items-center justify-between px-4 py-3.5 rounded-xl text-sm font-medium transition-all duration-200 group ${isActive ? activeLinkClass : inactiveLinkClass
+                  }`}
               >
                 <div className="flex items-center gap-3 relative">
                   <link.icon className={`w-5 h-5 ${isActive ? 'text-white' : 'text-white/70 group-hover:text-white'}`} />
                   {link.label}
-                  
+
                   {/* Notification Badge */}
                   {notificationCount > 0 && (
                     <span className={`

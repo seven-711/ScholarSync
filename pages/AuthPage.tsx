@@ -7,53 +7,67 @@ interface AuthPageProps {
   onLoginSuccess: (userId: string) => void;
 }
 
-type AuthView = 'selection' | 'scholar-login' | 'scholar-register' | 'admin-login';
+type AuthView = 'selection' | 'scholar-login' | 'scholar-register' | 'admin-login' | 'admin-register';
 
 export const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess }) => {
   const [view, setView] = useState<AuthView>('selection');
+  const [registerSuccess, setRegisterSuccess] = useState(false);
   const [loading, setLoading] = useState(false);
+
+  /* State */
   const [error, setError] = useState('');
-  
+
   // Rate Limiting State
   const [rateLimitCountdown, setRateLimitCountdown] = useState(0);
   const attemptsRef = useRef(0);
   const lastAttemptTimeRef = useRef(Date.now());
-  
+
   // Form State
   const [email, setEmail] = useState('');
-  const [password, setPassword] = useState(''); 
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState(''); // New
   const [fullName, setFullName] = useState('');
-  
+
   // New Registration Fields
   const [department, setDepartment] = useState('');
+  const [course, setCourse] = useState(''); // New
+  const [school, setSchool] = useState(''); // New
   const [yearLevel, setYearLevel] = useState('1st Year');
-  const [idPhoto, setIdPhoto] = useState<string>(''); // Base64
+  const [semester, setSemester] = useState('1st Semester'); // New
+  const [idPhoto, setIdPhoto] = useState<string>('');
+  const [enrollmentProof, setEnrollmentProof] = useState<string>(''); // New
 
   const resetForm = () => {
     setEmail('');
     setPassword('');
+    setConfirmPassword('');
     setFullName('');
     setDepartment('');
+    setCourse('');
+    setSchool('');
     setYearLevel('1st Year');
+    setSemester('1st Semester');
     setIdPhoto('');
+    setEnrollmentProof('');
     setError('');
   };
+
 
   const handleViewChange = (newView: AuthView) => {
     resetForm();
     setView(newView);
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>, setter: (val: string) => void) => {
     const file = e.target.files?.[0];
     if (file) {
-      if (file.size > 2 * 1024 * 1024) { // 2MB limit
-        alert("File size must be less than 2MB");
+      if (file.size > 5 * 1024 * 1024) { // 5MB limit
+        alert("File size must be less than 5MB");
         return;
       }
       const reader = new FileReader();
       reader.onloadend = () => {
-        setIdPhoto(reader.result as string);
+        setter(reader.result as string);
       };
       reader.readAsDataURL(file);
     }
@@ -62,8 +76,8 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess }) => {
   // --- Rate Limiter / Spam Trap Logic ---
   const checkThrottling = (): boolean => {
     const now = Date.now();
-    const TIME_WINDOW = 5000; 
-    const MAX_ATTEMPTS = 3;   
+    const TIME_WINDOW = 5000;
+    const MAX_ATTEMPTS = 3;
 
     if (now - lastAttemptTimeRef.current > TIME_WINDOW) {
       attemptsRef.current = 0;
@@ -81,18 +95,18 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess }) => {
         setRateLimitCountdown((prev) => {
           if (prev <= 1) {
             clearInterval(interval);
-            setError(''); 
-            attemptsRef.current = 0; 
+            setError('');
+            attemptsRef.current = 0;
             return 0;
           }
           return prev - 1;
         });
       }, 1000);
 
-      return true; 
+      return true;
     }
 
-    return false; 
+    return false;
   };
 
   // --- Admin Logic ---
@@ -122,12 +136,65 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess }) => {
         else throw new Error("Account not found.");
       }
 
-      if (data.role !== 'admin') throw new Error("This account is not an Admin.");
+      if (data.role !== 'admin' && data.role !== 'super_admin') throw new Error("This account is not an Admin.");
 
       onLoginSuccess(data.id);
     } catch (err: any) {
       console.error(err);
       setError(err.message || "Login failed.");
+      setLoading(false);
+    }
+  };
+
+  const handleAdminRegister = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (loading || rateLimitCountdown > 0) return;
+    if (checkThrottling()) return;
+
+    if (password !== confirmPassword) {
+      setError("Passwords do not match.");
+      return;
+    }
+
+    if (!school) {
+      setError("School name is required.");
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+    const cleanEmail = email.trim();
+    const cleanPassword = password.trim();
+
+    try {
+      const { data: existing } = await supabase.from('profiles').select('id').ilike('email', cleanEmail).maybeSingle();
+      if (existing) throw new Error("Email already registered.");
+
+      const newId = crypto.randomUUID();
+
+      // UPLOAD FILES
+      // State variables (idPhoto, enrollmentProof) are already base64 strings from handleFileChange
+      let idUrl = idPhoto || null;
+      let proofUrl = enrollmentProof || null;
+
+      const { error: insertError } = await supabase.from('profiles').insert([{
+        id: newId,
+        email: cleanEmail,
+        password: cleanPassword,
+        full_name: fullName,
+        role: 'admin', // School Officer
+        is_approved: false, // Pending Super Admin approval
+        school: school,
+        id_photo_data: idUrl,
+        enrollment_proof_data: proofUrl
+      }]);
+
+      if (insertError) throw insertError;
+
+      setRegisterSuccess(true);
+    } catch (err: any) {
+      console.error(err);
+      setError(err.message || "Registration failed.");
       setLoading(false);
     }
   };
@@ -147,7 +214,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess }) => {
       const { data, error } = await supabase
         .from('profiles')
         .select('*')
-        .ilike('email', cleanEmail) 
+        .ilike('email', cleanEmail)
         .eq('password', cleanPassword)
         .eq('role', 'scholar')
         .maybeSingle();
@@ -172,8 +239,13 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess }) => {
     if (loading || rateLimitCountdown > 0) return;
     if (checkThrottling()) return;
 
-    if (!idPhoto) {
-      setError("Please upload a photo of your ID.");
+    if (password !== confirmPassword) {
+      setError("Passwords do not match.");
+      return;
+    }
+
+    if (!idPhoto || !enrollmentProof) {
+      setError("Please upload both ID and Proof of Enrollment.");
       return;
     }
 
@@ -195,8 +267,12 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess }) => {
         role: 'scholar',
         is_approved: false,
         department: department,
+        school: school,
+        course: course,
         year_level: yearLevel,
-        id_photo_data: idPhoto
+        semester: semester,
+        id_photo_data: idPhoto,
+        enrollment_proof_data: enrollmentProof
       }]);
 
       if (insertError) throw insertError;
@@ -227,7 +303,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess }) => {
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
       <div className="max-w-4xl w-full bg-white rounded-2xl shadow-xl overflow-hidden flex flex-col md:flex-row min-h-[600px] md:min-h-[550px]">
-        
+
         {/* Left Side - Hero / Branding */}
         <div className={`md:w-5/12 p-8 text-white flex flex-col justify-between relative overflow-hidden transition-colors duration-500 ${heroBgClass}`}>
           <div className="relative z-10">
@@ -237,7 +313,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess }) => {
               </div>
               <span className="text-2xl font-bold tracking-tight">ScholarSync</span>
             </div>
-            
+
             <h2 className="text-3xl font-bold mb-4">
               {view === 'selection' && "Welcome Portal"}
               {isAdminView && "Admin Access"}
@@ -249,7 +325,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess }) => {
               {isScholarView && "Track your progress, submit assignments, and view upcoming events."}
             </p>
           </div>
-          
+
           <div className="absolute -bottom-24 -right-4 w-64 h-64 bg-white/10 rounded-full blur-3xl"></div>
           <div className="absolute top-12 -left-12 w-32 h-32 bg-white/10 rounded-full blur-2xl"></div>
         </div>
@@ -257,9 +333,9 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess }) => {
         {/* Right Side - Forms */}
         {/* Modified container: Removed justify-center from parent, added flex-1 structure */}
         <div className="md:w-7/12 p-6 md:p-12 flex flex-col relative bg-white overflow-y-auto max-h-[90vh]">
-          
+
           {view !== 'selection' && (
-            <button 
+            <button
               onClick={() => handleViewChange('selection')}
               // Static on mobile (at top of flow), Absolute on Desktop (floats in padding)
               className="w-fit mb-2 md:mb-0 md:absolute md:top-7 md:left-8 text-gray-500 hover:text-rose-900 flex items-center gap-2 text-sm font-bold transition-colors z-20"
@@ -273,11 +349,10 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess }) => {
             <div className="max-w-sm mx-auto w-full">
 
               {error && (
-                <div className={`mb-6 p-4 rounded-lg text-sm border flex gap-2 items-start animate-in fade-in slide-in-from-top-2 ${
-                  rateLimitCountdown > 0 
-                    ? 'bg-orange-50 border-orange-200 text-orange-800' 
-                    : 'bg-red-50 border-red-100 text-red-700'
-                }`}>
+                <div className={`mb-6 p-4 rounded-lg text-sm border flex gap-2 items-start animate-in fade-in slide-in-from-top-2 ${rateLimitCountdown > 0
+                  ? 'bg-orange-50 border-orange-200 text-orange-800'
+                  : 'bg-red-50 border-red-100 text-red-700'
+                  }`}>
                   {rateLimitCountdown > 0 ? (
                     <Clock className="w-5 h-5 flex-shrink-0 text-orange-600 animate-pulse" />
                   ) : (
@@ -294,7 +369,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess }) => {
               {view === 'selection' && (
                 <div className="space-y-4 animate-in fade-in slide-in-from-right-4 duration-300">
                   <h3 className="text-2xl font-bold text-gray-900 mb-6 text-center">Select Your Portal</h3>
-                  
+
                   <button
                     onClick={() => handleViewChange('scholar-login')}
                     className="w-full group relative flex items-center p-4 bg-white border-2 border-gray-100 rounded-xl hover:border-rose-900 hover:bg-rose-50/50 transition-all text-left shadow-sm hover:shadow-md"
@@ -336,9 +411,9 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess }) => {
                       <label className="block text-sm font-medium text-gray-700 mb-1">Email Address</label>
                       <div className="relative">
                         <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                        <input 
-                          type="email" 
-                          required 
+                        <input
+                          type="email"
+                          required
                           value={email}
                           onChange={(e) => setEmail(e.target.value)}
                           className="w-full pl-10 pr-4 py-3 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 outline-none transition-all disabled:opacity-50"
@@ -352,9 +427,9 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess }) => {
                       <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
                       <div className="relative">
                         <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                        <input 
-                          type="password" 
-                          required 
+                        <input
+                          type="password"
+                          required
                           value={password}
                           onChange={(e) => setPassword(e.target.value)}
                           className="w-full pl-10 pr-4 py-3 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 outline-none transition-all disabled:opacity-50"
@@ -367,14 +442,196 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess }) => {
                     <button
                       type="submit"
                       disabled={loading || rateLimitCountdown > 0}
-                      className={`w-full py-3 rounded-lg transition-colors font-medium shadow-md flex justify-center items-center gap-2 ${
-                        loading || rateLimitCountdown > 0 
-                          ? 'bg-gray-300 text-gray-500 cursor-not-allowed' 
-                          : btnClass
-                      }`}
+                      className={`w-full py-3 rounded-lg transition-colors font-medium shadow-md flex justify-center items-center gap-2 ${loading || rateLimitCountdown > 0
+                        ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                        : btnClass
+                        }`}
                     >
                       {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : rateLimitCountdown > 0 ? `Wait ${rateLimitCountdown}s` : 'Sign In'}
                     </button>
+                  </form>
+
+                  <div className="mt-8 text-center pt-6 border-t border-gray-100">
+                    <p className="text-sm text-gray-600">
+                      School Coordinator?{' '}
+                      <button
+                        onClick={() => handleViewChange('admin-register')}
+                        disabled={loading || rateLimitCountdown > 0}
+                        className="text-orange-600 font-bold hover:underline disabled:text-gray-400 ml-1"
+                      >
+                        Register School
+                      </button>
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* VIEW: ADMIN REGISTER */}
+              {view === 'admin-register' && (
+                <div className="animate-in fade-in slide-in-from-right-4 duration-300">
+                  <div className="mb-6">
+                    <div className="w-12 h-12 bg-orange-50 rounded-full flex items-center justify-center mx-auto mb-3">
+                      <Building className="w-6 h-6 text-orange-600" />
+                    </div>
+                    <h3 className="text-2xl font-bold text-gray-900 text-center">School Officer Registration</h3>
+                    <p className="text-gray-500 text-sm mt-1 text-center">Register your school to manage scholars.</p>
+                  </div>
+
+                  <form onSubmit={handleAdminRegister} className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Full Name</label>
+                      <div className="relative">
+                        <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                        <input
+                          type="text"
+                          required
+                          value={fullName}
+                          onChange={(e) => setFullName(e.target.value)}
+                          className="w-full pl-10 pr-4 py-3 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 outline-none transition-all text-sm"
+                          placeholder="Officer Name"
+                          disabled={loading}
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">School Name</label>
+                      <div className="relative">
+                        <Building className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                        <input
+                          type="text"
+                          required
+                          value={school}
+                          onChange={(e) => setSchool(e.target.value)}
+                          className="w-full pl-10 pr-4 py-3 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 outline-none transition-all text-sm"
+                          placeholder="University / College Name"
+                          disabled={loading}
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Email Address</label>
+                      <div className="relative">
+                        <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                        <input
+                          type="email"
+                          required
+                          value={email}
+                          onChange={(e) => setEmail(e.target.value)}
+                          className="w-full pl-10 pr-4 py-3 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 outline-none transition-all text-sm"
+                          placeholder="officer@school.edu"
+                          disabled={loading}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Officer Uploads */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-xs font-bold text-gray-700 mb-1">School ID / ID Photo</label>
+                        <div className="bg-white border-2 border-dashed border-gray-300 rounded-xl p-3 text-center hover:bg-gray-50 transition-colors relative h-24 flex items-center justify-center">
+                          <input
+                            type="file"
+                            accept="image/*"
+                            required
+                            onChange={(e) => handleFileChange(e, setIdPhoto)}
+                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                            disabled={loading}
+                          />
+                          {idPhoto ? (
+                            <div className="flex items-center gap-2">
+                              <CheckCircle2 className="w-5 h-5 text-green-600" />
+                              <span className="text-xs font-bold text-green-700">Uploaded</span>
+                            </div>
+                          ) : (
+                            <div className="flex flex-col items-center">
+                              <IdCard className="w-5 h-5 text-gray-400 mb-1" />
+                              <span className="text-[10px] text-gray-500">Upload ID</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold text-gray-700 mb-1">Proof of Employment</label>
+                        <div className="bg-white border-2 border-dashed border-gray-300 rounded-xl p-3 text-center hover:bg-gray-50 transition-colors relative h-24 flex items-center justify-center">
+                          <input
+                            type="file"
+                            accept="image/*,.pdf"
+                            required
+                            onChange={(e) => handleFileChange(e, setEnrollmentProof)}
+                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                            disabled={loading}
+                          />
+                          {enrollmentProof ? (
+                            <div className="flex items-center gap-2">
+                              <CheckCircle2 className="w-5 h-5 text-green-600" />
+                              <span className="text-xs font-bold text-green-700">Uploaded</span>
+                            </div>
+                          ) : (
+                            <div className="flex flex-col items-center">
+                              <Upload className="w-5 h-5 text-gray-400 mb-1" />
+                              <span className="text-[10px] text-gray-500">Employment Proof</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-xs font-bold text-gray-700 mb-1">Password</label>
+                        <div className="relative">
+                          <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                          <input
+                            type="password"
+                            required
+                            value={password}
+                            onChange={(e) => setPassword(e.target.value)}
+                            className="w-full pl-10 pr-4 py-3 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 outline-none transition-all text-sm"
+                            placeholder="Create password"
+                            disabled={loading}
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-gray-700 mb-1">Confirm</label>
+                        <div className="relative">
+                          <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                          <input
+                            type="password"
+                            required
+                            value={confirmPassword}
+                            onChange={(e) => setConfirmPassword(e.target.value)}
+                            className={`w-full pl-10 pr-4 py-3 bg-white border rounded-xl focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 outline-none transition-all text-sm ${confirmPassword && password !== confirmPassword ? 'border-red-500' : 'border-gray-200'}`}
+                            placeholder="Confirm"
+                            disabled={loading}
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex gap-3 pt-2">
+                      <button
+                        type="button"
+                        onClick={() => handleViewChange('admin-login')}
+                        className="w-1/3 py-3 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors font-bold text-sm"
+                        disabled={loading}
+                      >
+                        Return
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={loading || rateLimitCountdown > 0}
+                        className={`flex-1 py-3 rounded-lg transition-colors font-medium shadow-md flex justify-center items-center gap-2 ${loading || rateLimitCountdown > 0
+                          ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                          : btnClass
+                          }`}
+                      >
+                        {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Submit for Approval'}
+                      </button>
+                    </div>
                   </form>
                 </div>
               )}
@@ -395,9 +652,9 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess }) => {
                       <label className="block text-sm font-medium text-gray-700 mb-1">Email Address</label>
                       <div className="relative">
                         <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                        <input 
-                          type="email" 
-                          required 
+                        <input
+                          type="email"
+                          required
                           value={email}
                           onChange={(e) => setEmail(e.target.value)}
                           className="w-full pl-10 pr-4 py-2.5 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-rose-900/20 focus:border-rose-900 outline-none transition-all disabled:opacity-50"
@@ -411,9 +668,9 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess }) => {
                       <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
                       <div className="relative">
                         <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                        <input 
-                          type="password" 
-                          required 
+                        <input
+                          type="password"
+                          required
                           value={password}
                           onChange={(e) => setPassword(e.target.value)}
                           className="w-full pl-10 pr-4 py-2.5 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-rose-900/20 focus:border-rose-900 outline-none transition-all disabled:opacity-50"
@@ -426,11 +683,10 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess }) => {
                     <button
                       type="submit"
                       disabled={loading || rateLimitCountdown > 0}
-                      className={`w-full py-3 rounded-xl transition-all font-bold shadow-md hover:shadow-lg flex justify-center items-center gap-2 transform active:scale-95 ${
-                        loading || rateLimitCountdown > 0 
-                          ? 'bg-gray-300 text-gray-500 cursor-not-allowed' 
-                          : btnClass
-                      }`}
+                      className={`w-full py-3 rounded-xl transition-all font-bold shadow-md hover:shadow-lg flex justify-center items-center gap-2 transform active:scale-95 ${loading || rateLimitCountdown > 0
+                        ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                        : btnClass
+                        }`}
                     >
                       {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : rateLimitCountdown > 0 ? `Wait ${rateLimitCountdown}s` : 'Sign In'}
                     </button>
@@ -439,7 +695,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess }) => {
                   <div className="mt-8 text-center pt-6 border-t border-gray-100">
                     <p className="text-sm text-gray-600">
                       New to ScholarSync?{' '}
-                      <button 
+                      <button
                         onClick={() => handleViewChange('scholar-register')}
                         disabled={loading || rateLimitCountdown > 0}
                         className="text-rose-900 font-bold hover:underline disabled:text-gray-400 ml-1"
@@ -466,9 +722,9 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess }) => {
                         <label className="block text-xs font-bold text-gray-700 mb-1">Full Name</label>
                         <div className="relative">
                           <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                          <input 
-                            type="text" 
-                            required 
+                          <input
+                            type="text"
+                            required
                             value={fullName}
                             onChange={(e) => setFullName(e.target.value)}
                             className="w-full pl-10 pr-4 py-3 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-rose-900/20 focus:border-rose-900 outline-none transition-all text-sm"
@@ -478,83 +734,160 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess }) => {
                         </div>
                       </div>
                       <div>
-                         <label className="block text-xs font-bold text-gray-700 mb-1">Department</label>
-                         <div className="relative">
-                           <Building className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                           <input 
-                             type="text" 
-                             required 
-                             value={department}
-                             onChange={(e) => setDepartment(e.target.value)}
-                             className="w-full pl-10 pr-4 py-3 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-rose-900/20 focus:border-rose-900 outline-none transition-all text-sm"
-                             placeholder="e.g. Computer Science"
-                             disabled={loading}
-                           />
-                         </div>
+                        <label className="block text-xs font-bold text-gray-700 mb-1">Department</label>
+                        <div className="relative">
+                          <Building className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                          <input
+                            type="text"
+                            required
+                            value={department}
+                            onChange={(e) => setDepartment(e.target.value)}
+                            className="w-full pl-10 pr-4 py-3 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-rose-900/20 focus:border-rose-900 outline-none transition-all text-sm"
+                            placeholder="e.g. Computer Science"
+                            disabled={loading}
+                          />
+                        </div>
                       </div>
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                       <div>
-                         <label className="block text-xs font-bold text-gray-700 mb-1">Year Level</label>
-                         <div className="relative">
-                           <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                           <select 
-                             value={yearLevel}
-                             onChange={(e) => setYearLevel(e.target.value)}
-                             className="w-full pl-10 pr-4 py-3 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-rose-900/20 focus:border-rose-900 outline-none transition-all appearance-none text-sm"
-                             disabled={loading}
-                           >
-                             <option>1st Year</option>
-                             <option>2nd Year</option>
-                             <option>3rd Year</option>
-                             <option>4th Year</option>
-                           </select>
-                         </div>
-                       </div>
-                       <div>
-                         <label className="block text-xs font-bold text-gray-700 mb-1">Email</label>
-                         <div className="relative">
-                           <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                           <input 
-                             type="email" 
-                             required 
-                             value={email}
-                             onChange={(e) => setEmail(e.target.value)}
-                             className="w-full pl-10 pr-4 py-3 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-rose-900/20 focus:border-rose-900 outline-none transition-all text-sm"
-                             placeholder="email@example.com"
-                             disabled={loading}
-                           />
-                         </div>
-                       </div>
+                      <div>
+                        <label className="block text-xs font-bold text-gray-700 mb-1">School / University</label>
+                        <div className="relative">
+                          <Building className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                          <input
+                            type="text"
+                            required
+                            value={school}
+                            onChange={(e) => setSchool(e.target.value)}
+                            className="w-full pl-10 pr-4 py-3 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-rose-900/20 focus:border-rose-900 outline-none transition-all text-sm"
+                            placeholder="University Name"
+                            disabled={loading}
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-gray-700 mb-1">Course / Program</label>
+                        <div className="relative">
+                          <GraduationCap className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                          <input
+                            type="text"
+                            required
+                            value={course}
+                            onChange={(e) => setCourse(e.target.value)}
+                            className="w-full pl-10 pr-4 py-3 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-rose-900/20 focus:border-rose-900 outline-none transition-all text-sm"
+                            placeholder="BS Computer Science"
+                            disabled={loading}
+                          />
+                        </div>
+                      </div>
                     </div>
 
-                    {/* ID Upload */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-xs font-bold text-gray-700 mb-1">Year Level</label>
+                        <div className="relative">
+                          <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                          <select
+                            value={yearLevel}
+                            onChange={(e) => setYearLevel(e.target.value)}
+                            className="w-full pl-10 pr-4 py-3 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-rose-900/20 focus:border-rose-900 outline-none transition-all appearance-none text-sm"
+                            disabled={loading}
+                          >
+                            <option>1st Year</option>
+                            <option>2nd Year</option>
+                            <option>3rd Year</option>
+                            <option>4th Year</option>
+                            <option>5th Year</option>
+                          </select>
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-gray-700 mb-1">Semester</label>
+                        <div className="relative">
+                          <Clock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                          <select
+                            value={semester}
+                            onChange={(e) => setSemester(e.target.value)}
+                            className="w-full pl-10 pr-4 py-3 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-rose-900/20 focus:border-rose-900 outline-none transition-all appearance-none text-sm"
+                            disabled={loading}
+                          >
+                            <option>1st Semester</option>
+                            <option>2nd Semester</option>
+                            <option>Summer</option>
+                          </select>
+                        </div>
+                      </div>
+                    </div>
+
                     <div>
-                      <label className="block text-xs font-bold text-gray-700 mb-1">Upload ID Photo (Required)</label>
-                      <div className="bg-white border-2 border-dashed border-gray-300 rounded-xl p-3 text-center hover:bg-gray-50 transition-colors relative">
-                        <input 
-                          type="file" 
-                          accept="image/*"
-                          required 
-                          onChange={handleFileChange}
-                          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                      <label className="block text-xs font-bold text-gray-700 mb-1">Email</label>
+                      <div className="relative">
+                        <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                        <input
+                          type="email"
+                          required
+                          value={email}
+                          onChange={(e) => setEmail(e.target.value)}
+                          className="w-full pl-10 pr-4 py-3 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-rose-900/20 focus:border-rose-900 outline-none transition-all text-sm"
+                          placeholder="email@example.com"
                           disabled={loading}
                         />
-                        {idPhoto ? (
-                          <div className="flex items-center gap-3">
-                             <img src={idPhoto} alt="ID Preview" className="h-12 w-16 object-cover rounded border border-gray-200" />
-                             <div className="text-left">
-                               <p className="text-xs font-bold text-green-700 flex items-center gap-1"><CheckCircle2 className="w-3 h-3" /> Photo Attached</p>
-                               <p className="text-[10px] text-gray-500">Click to change</p>
-                             </div>
-                          </div>
-                        ) : (
-                          <div className="flex flex-col items-center py-2">
-                            <IdCard className="w-6 h-6 text-gray-400 mb-1" />
-                            <p className="text-xs text-gray-600 font-medium">Click to upload ID photo</p>
-                          </div>
-                        )}
+                      </div>
+                    </div>
+
+                    {/* Uploads Grid */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {/* ID Photo */}
+                      <div>
+                        <label className="block text-xs font-bold text-gray-700 mb-1">ID Photo</label>
+                        <div className="bg-white border-2 border-dashed border-gray-300 rounded-xl p-3 text-center hover:bg-gray-50 transition-colors relative h-24 flex items-center justify-center">
+                          <input
+                            type="file"
+                            accept="image/*"
+                            required
+                            onChange={(e) => handleFileChange(e, setIdPhoto)}
+                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                            disabled={loading}
+                          />
+                          {idPhoto ? (
+                            <div className="flex items-center gap-2">
+                              <CheckCircle2 className="w-5 h-5 text-green-600" />
+                              <span className="text-xs font-bold text-green-700">Uploaded</span>
+                            </div>
+                          ) : (
+                            <div className="flex flex-col items-center">
+                              <IdCard className="w-5 h-5 text-gray-400 mb-1" />
+                              <span className="text-[10px] text-gray-500">Upload ID</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Enrollment Proof */}
+                      <div>
+                        <label className="block text-xs font-bold text-gray-700 mb-1">Proof of Enrollment</label>
+                        <div className="bg-white border-2 border-dashed border-gray-300 rounded-xl p-3 text-center hover:bg-gray-50 transition-colors relative h-24 flex items-center justify-center">
+                          <input
+                            type="file"
+                            accept="image/*,.pdf"
+                            required
+                            onChange={(e) => handleFileChange(e, setEnrollmentProof)}
+                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                            disabled={loading}
+                          />
+                          {enrollmentProof ? (
+                            <div className="flex items-center gap-2">
+                              <CheckCircle2 className="w-5 h-5 text-green-600" />
+                              <span className="text-xs font-bold text-green-700">Uploaded</span>
+                            </div>
+                          ) : (
+                            <div className="flex flex-col items-center">
+                              <Upload className="w-5 h-5 text-gray-400 mb-1" />
+                              <span className="text-[10px] text-gray-500">Upload Proof</span>
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </div>
 
@@ -562,13 +895,30 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess }) => {
                       <label className="block text-xs font-bold text-gray-700 mb-1">Password</label>
                       <div className="relative">
                         <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                        <input 
-                          type="password" 
-                          required 
+                        <input
+                          type="password"
+                          required
                           value={password}
                           onChange={(e) => setPassword(e.target.value)}
                           className="w-full pl-10 pr-4 py-3 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-rose-900/20 focus:border-rose-900 outline-none transition-all text-sm"
                           placeholder="Create password"
+                          disabled={loading}
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-gray-700 mb-1">Confirm Password</label>
+                      <div className="relative">
+                        <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                        <input
+                          type="password"
+                          required
+                          value={confirmPassword}
+                          onChange={(e) => setConfirmPassword(e.target.value)}
+                          className={`w-full pl-10 pr-4 py-3 bg-white border rounded-xl focus:ring-2 focus:ring-rose-900/20 focus:border-rose-900 outline-none transition-all text-sm ${confirmPassword && password !== confirmPassword ? 'border-red-500' : 'border-gray-200'
+                            }`}
+                          placeholder="Confirm password"
                           disabled={loading}
                         />
                       </div>
@@ -586,11 +936,10 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess }) => {
                       <button
                         type="submit"
                         disabled={loading || rateLimitCountdown > 0}
-                        className={`flex-1 py-3 rounded-lg transition-colors font-medium shadow-md flex justify-center items-center gap-2 ${
-                          loading || rateLimitCountdown > 0
-                            ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                            : btnClass
-                        }`}
+                        className={`flex-1 py-3 rounded-lg transition-colors font-medium shadow-md flex justify-center items-center gap-2 ${loading || rateLimitCountdown > 0
+                          ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                          : btnClass
+                          }`}
                       >
                         {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : rateLimitCountdown > 0 ? `Wait ${rateLimitCountdown}s` : 'Submit Registration'}
                       </button>
@@ -602,7 +951,31 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess }) => {
             </div>
           </div>
         </div>
+
+        {/* SUCCESS MODAL FOR ADMIN REGISTRATION */}
+        {registerSuccess && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-300">
+            <div className="bg-white rounded-2xl shadow-xl max-w-sm w-full p-6 text-center transform transition-all animate-in zoom-in-95 duration-200">
+              <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <CheckCircle2 className="w-8 h-8 text-green-600" />
+              </div>
+              <h3 className="text-xl font-bold text-gray-900 mb-2">Registration Submitted!</h3>
+              <p className="text-gray-600 mb-6">
+                Your school officer account has been created. Please wait for Super Admin approval before logging in.
+              </p>
+              <button
+                onClick={() => {
+                  setRegisterSuccess(false);
+                  handleViewChange('selection');
+                }}
+                className="w-full py-3 bg-green-600 text-white font-bold rounded-xl hover:bg-green-700 transition-colors shadow-lg shadow-green-200"
+              >
+                Return to Portal
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
-}
+};

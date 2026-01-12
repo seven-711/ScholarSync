@@ -7,11 +7,14 @@ import { AuthPage } from './pages/AuthPage';
 import { AdminDashboard } from './pages/AdminDashboard';
 import { AdminScholars } from './pages/AdminScholars';
 import { AdminAnnouncements } from './pages/AdminAnnouncements';
-import { AdminAssignments } from './pages/AdminAssignments';
+
 import { AdminInquiries } from './pages/AdminInquiries';
 import { ScholarDashboard } from './pages/ScholarDashboard';
-import { ScholarAssignments } from './pages/ScholarAssignments';
+
+
 import { ScholarInquiries } from './pages/ScholarInquiries';
+import { ScholarSDP } from './pages/ScholarSDP'; // New
+import { AdminSDP } from './pages/AdminSDP'; // New
 import { PendingApproval } from './pages/PendingApproval';
 import { Loader2, Settings } from 'lucide-react';
 import { AiChatbot } from './components/ScholarAiFeatures';
@@ -20,7 +23,7 @@ const App: React.FC = () => {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('dashboard');
-  const [notifications, setNotifications] = useState<{[key: string]: number}>({});
+  const [notifications, setNotifications] = useState<{ [key: string]: number }>({});
 
   useEffect(() => {
     // Check for persisted demo session
@@ -58,7 +61,7 @@ const App: React.FC = () => {
   };
 
   const fetchNotifications = async (userProfile: Profile) => {
-    const newNotes: {[key: string]: number} = {};
+    const newNotes: { [key: string]: number } = {};
 
     if (userProfile.role === UserRole.ADMIN) {
       // 1. Pending Scholars
@@ -67,7 +70,7 @@ const App: React.FC = () => {
         .select('id', { count: 'exact', head: true })
         .eq('role', 'scholar')
         .eq('is_approved', false);
-      
+
       if (scholarCount) {
         newNotes['scholars'] = scholarCount;
         newNotes['dashboard'] = (newNotes['dashboard'] || 0) + scholarCount;
@@ -79,7 +82,7 @@ const App: React.FC = () => {
         .from('inquiries')
         .select('id', { count: 'exact', head: true })
         .in('status', ['pending', 'pending_admin']);
-        
+
       if (inquiryCount) newNotes['inquiries'] = inquiryCount;
 
     } else {
@@ -90,7 +93,7 @@ const App: React.FC = () => {
         .select('id', { count: 'exact', head: true })
         .eq('scholar_id', userProfile.id)
         .eq('status', 'returned');
-      
+
       if (returnedCount) newNotes['assignments'] = returnedCount;
 
       // 2. Resolved Inquiries (Admin Replies) that are NOT READ
@@ -135,15 +138,15 @@ const App: React.FC = () => {
           <p className="text-gray-600 mb-6">
             The application is missing your database credentials.
           </p>
-          
+
           <div className="text-left bg-gray-50 p-4 rounded-lg border border-gray-200 text-sm space-y-3">
-             <p className="font-bold text-gray-900">How to fix:</p>
-             <ol className="list-decimal list-inside space-y-2 text-gray-700">
-               <li>Open the file <code className="bg-white px-1 py-0.5 border rounded">supabaseClient.ts</code></li>
-               <li>Find <code className="text-blue-600">YOUR_SUPABASE_URL</code></li>
-               <li>Paste your URL and Anon Key from your Supabase Dashboard</li>
-               <li>Save the file to reload</li>
-             </ol>
+            <p className="font-bold text-gray-900">How to fix:</p>
+            <ol className="list-decimal list-inside space-y-2 text-gray-700">
+              <li>Open the file <code className="bg-white px-1 py-0.5 border rounded">supabaseClient.ts</code></li>
+              <li>Find <code className="text-blue-600">YOUR_SUPABASE_URL</code></li>
+              <li>Paste your URL and Anon Key from your Supabase Dashboard</li>
+              <li>Save the file to reload</li>
+            </ol>
           </div>
         </div>
       </div>
@@ -168,9 +171,9 @@ const App: React.FC = () => {
   }
 
   // Logged in with Profile but NOT APPROVED
-  if (!profile.is_approved && profile.role === UserRole.SCHOLAR) {
+  if (!profile.is_approved && (profile.role === UserRole.SCHOLAR || profile.role === UserRole.ADMIN)) {
     return (
-      <PendingApproval 
+      <PendingApproval
         userId={profile.id}
         userName={profile.full_name}
         onLogout={handleLogout}
@@ -188,19 +191,21 @@ const App: React.FC = () => {
         onLogout={handleLogout}
         notifications={notifications}
       >
-        {profile.role === UserRole.ADMIN ? (
+        {profile.role === UserRole.ADMIN || profile.role === UserRole.SUPER_ADMIN ? (
           <>
-            {activeTab === 'dashboard' && <AdminDashboard onUpdate={handleUpdateNotifications} />}
-            {activeTab === 'scholars' && <AdminScholars onUpdate={handleUpdateNotifications} />}
+            {activeTab === 'dashboard' && <AdminDashboard profile={profile} onUpdate={handleUpdateNotifications} />}
+            {activeTab === 'scholars' && <AdminScholars profile={profile} onUpdate={handleUpdateNotifications} />}
+            {activeTab === 'sdp' && <AdminSDP profile={profile} onUpdate={handleUpdateNotifications} onProfileRefresh={() => fetchProfile(profile.id)} />}
             {activeTab === 'announcements' && <AdminAnnouncements />}
-            {activeTab === 'assignments' && <AdminAssignments />}
+
             {activeTab === 'inquiries' && <AdminInquiries onUpdate={handleUpdateNotifications} />}
           </>
         ) : (
           <>
             <AiChatbot />
             {activeTab === 'dashboard' && <ScholarDashboard profile={profile} onNavigate={handleNavigate} onUpdate={handleUpdateNotifications} />}
-            {activeTab === 'assignments' && <ScholarAssignments profile={profile} onUpdate={handleUpdateNotifications} />}
+            {activeTab === 'sdp' && <ScholarSDP profile={profile} onUpdate={handleUpdateNotifications} />}
+
             {activeTab === 'inquiries' && <ScholarInquiries profile={profile} onUpdate={handleUpdateNotifications} />}
           </>
         )}
